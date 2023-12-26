@@ -206,4 +206,96 @@ $ strace -c \
 
 It allows sandboxed programs to run within the operating system, which means that application developers can run eBPF programs to add additional capabilities to the operating system at runtime. The operating system then guarantees safety and execution efficiency as if natively compiled with the aid of a
 
-## Chapter2. Shells and Scripting
+## Chapter3. Shells and Scripting
+### Basics
+- terminal
+  - a program that privdes a textual user interface
+  - environment variable `TERM` : terminal emualtor
+- shell
+  - a program that runs inside the terminal and acts as a command interperter
+  - commonly defined in `sh`. POSIX shell
+  - originally there was Bourne shell sh. -> bash: Bourne Again Shell.
+- streams
+  - io = input, output
+  - 3 default file descriptor(FD)
+    - stdin(FD 0)
+    - stdout(FD 1)
+    - stderr(FD 2)
+  - can redirect with `$FD>`, `<$FD`
+  - `1>`, `>`: stdout
+  - `&>`: both stdout and stderr 
+  - `/dev/null`: to get rid of a stream
+- special characters
+  - `&`(ampersand): run as background
+  - `\`(backslash): continue command with newline
+  - `|`(pipe): connect stdout of one process to stdin of next process
+- variables
+  - environment variable
+    - global
+    - list with `env`
+  - shell vairaible
+    - valid in the context of current execution
+    - list with `set`
+  - common
+    - IFS: list of characters to seperate field
+    - ?: exit status
+    - $: current process id
+    - 0: current process name
+- exit status
+  - $?
+  - 0: successful
+  - non-zero: unsuccessful
+  - $PIPESTATUS: array of exit statuses of piped commands
+- built-in commands
+  - /usr/bin: user command
+  - /usr/sbin: administrative command
+- job control
+  - background, foreground
+  - `&`: run as background
+  - `ctrl + z`: sned to background
+  - `nohup`: keep running with shell closed
+  - `disown`: make a process run like nohup
+- modern commands
+  - exa: ls
+  - bat: syntax highlighting, show non-printable characters, suppors git, integrated pager
+  - rg: find & grep, with file name, line number
+  - jq: json parsing
+- common tasks
+  - `alias`: shorten
+  - navigating shortcuts
+  - viewing long files: head, tail, less, ba
+  - dateime handling: date
+
+### human friendly shells
+- fish shell
+    - autosuggestion
+    - $status instead of $?
+    - configuration ui
+- zshell
+  - oh my zshell: theming
+- others
+  - oil shell
+  - murex
+  - nushell
+  - powershell
+
+### terminal multiplexer
+- screen: old, outdated
+
+#### tmux
+- glossaries
+  - sesssion
+     - a logical unit of a working environment for one task
+     - a conatiner for other units
+  - window
+    - a tab in a browser
+    - belongs to a sesion
+  - panes
+    - a single shell instance running
+- trigger: `ctrl + b` (default)
+- commands: https://tmuxcheatsheet.com/
+- tpm: tmux plugin manager
+  - tmux-resurrect: restore session
+  - tmux-continuum: automatically save/restores session
+
+### Scripting
