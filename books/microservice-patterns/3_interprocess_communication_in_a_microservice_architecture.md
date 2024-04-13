@@ -16,7 +16,25 @@
 | synchronous  | request/response                                                              | -                                               |
 | asynchronous | asynchronous request/response <br/> one-way notifications(reply not expected) | publish/subscribe <br/> publish/async responses |
 
----
+### defining & evolving APIs
+
+- important to define services API by some kind of IDL(interface definition language)
+- handling changes of apis
+  - semantic versioning
+    - major version in path
+    - http: include version number in the MIME type
+    - put version in the message
+- backward-compatible changes
+
+### message formats
+
+- text-based: json, xml
+  - advantage: human readable, easily be backward compatible
+  - disadvantage: tend to be verbose, overhead of parsing
+- binary message formats: protocol buffer, avro
+  - protocol buffers: use tagged fields
+  - avro: needs to know the schema in order to interpret messages
+  - forced to take an API first approach
 
 ## communicating using the synchronous remote procedure invocation pattern
 
