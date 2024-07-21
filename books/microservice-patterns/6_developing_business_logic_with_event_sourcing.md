@@ -1,15 +1,17 @@
 # 6. Developing business logic with event sourcing
 
-## what is event sourcing and event store
+## 6.1 event sourcing
 
 ### event sourcing
 
 - traditional way
   - store `current state` of an aggregate in DB
 - event sourcing
+
   - stores `changes` of an aggregate in DB
     (=a change of an aggregate -> event)
   - current state of an aggregate can be retrieved by iteratively apply the changes.
+    ex) current account balance can be calculated by apply all the deposits and withdrawals
 
   ![6_events_table](6_events_table.png)
 
@@ -19,16 +21,35 @@
   - 2\. crate an aggregate with default constructor
   - 3\. iteratively apply the events.
 
-- why use this? - trouble with traditional persistence
-  - object-relational impedance mismatch
-  - lack of aggregate history₩
-  - audit logging - error prone
-  - event publishing bolted onto business logic
+### benefit/drawbacks of event sourcing
+
+- benefits
+
+  - reliably publishes domain events
+  - preserves the history of aggregates, auto audit logging
+  - mostly avoid the object-relational impedance mismatch
+  - provides developers with a time machine
+
+- drawbacks
+  - different programming model with a learning curve
+  - complexity like messaging-based application
+  - evolving events can be tricky
+  - deleting data is tricky
+    - traditional: soft delete(set `deleted` flag instead of removing the row)
+    - laws like GDPR(General Data Protection Regulation) of Europe -> application must forget the user's personal information
+    - solution: encryption
+      - each user has an encryption key
+      - leave the data but delete the encryption key when the user needs to be deleted
+    - if the aggregate key is personal info like email address
+      - replace it with uuid token, map that uuid with email in different table
+  - querying the event store is challenging
+    - finding objects with current state is hard
 
 ### event and aggregate methods
 
 - event
 
+  - a change of an aggregat
   - event must contain the data that the aggregate needs to perform the state transition
   - contrary to the message that has only id.
 
@@ -39,7 +60,12 @@
     - validation + determination of state changes
     - throws exception
     - returns a list of events representing state change
-  - apply: takes event parameter -> update the aggregate to the state
+  - apply
+    - takes event parameter -> update the aggregate to the state
+
+  ![Alt text](6_aggregate_method_overview.png)
+  ![Alt text](6_aggregate_method_detail.png)
+
   - examples
     - create aggregate
       - 1\. Instantiate aggregate root using its default constructor.
@@ -54,27 +80,7 @@
       - 5\. Update the aggregate by iterating through the new events, calling apply().
       - 6\. Save the new events in the event store.
 
-### benefit/drawbacks of event sourcing
-- benefits
-  - reliably publishes domain events
-  - preserves the history of aggregates
-  - mostly avoid the object-relational impedance mismatch
-  - provides developers with a time machine
-
-- drawbacks
-  - different programming model with a learning curve
-  - complexity like messaging-based application
-  - evolving events can be tricky
-  - deleting data is tricky
-    - traditional: soft delete(set `deleted` flag instead of removing the row)
-    - laws like GDPR -> application must forget the user's personal information
-    - solution: encryption
-      - each user has an encryption key
-      - leave the data but delete the encryption key when the user needs to be deleted
-    - if the aggregate key is personal info like email address
-      - replace it with uuid token, map that uuid with email in different table
-  - querying the event store is challenging
-    - finding objects with current state is hard
+![Alt text](6_aggregate_method_overview.png)
 
 ## things to think about
 
@@ -90,9 +96,24 @@
           WHERE VERSION = <original version>
   ```
 
+### snapshot
+
+- state of aggregate in certain point
+- we can apply events from this snapshot instead of default constructor
+- by
+  - json serialization (simple aggregate)
+  - memento pattern (complex aggregate)
+
+![Alt text](6_snapashot.png)
+
 ### event sourcing and publishing events
 
+- event sourcing persist events to manage the state of an aggregate, \
+  those events can be published to consumers
+
 - deliver events to interested consumers
+
+  > similar with message publishing in chapter 3
 
   - polling and transaction log tailing
   - main difference between outbox pattern: not temporary
@@ -112,16 +133,6 @@
     ```
     ![Alt text](6_polling_problem.png)
 
-### snapshot
-
-- state of aggregate in certain point
-- we can apply events from this snapshot instead of default constructor
-- by
-  - json serialization (simple aggregate)
-  - memento pattern (complex aggregate)
-
-![Alt text](6_snapashot.png)
-
 ### idempotent message processing
 
 - message processing: at least once -> need deduplication
@@ -129,7 +140,7 @@
   - store message id in `processed_messages` table
   - process the message if its id is not in the table
 - nosql
-  - store message id inside the message
+  - store message id inside the event
   - problem: some processing may not output event
   - solution: make processing always produce event(even with no state change)
 
@@ -149,7 +160,7 @@
     - leave the events in the table as it is.
     - when reading the event, convert to the newer version format
 
-## event store
+## 6.2 event store
 
 ![6_event_store](6_event_store.png)
 
@@ -199,10 +210,10 @@ create table snapshots (
 )
 ```
 
-- find
+- find: get aggregate
   - find snapshot.
-    - if any -> construct events from there
-    - if not -> construct events with all events
+  - if snapshot exists -> construct events from there
+  - if snapshot does not exist -> construct events with all events
 - create
   - inset a row into the entity table
   - insert events into the event table
@@ -226,6 +237,7 @@ create table snapshots (
 ## client framework with code
 
 ### Aggregate: order
+
 ```java
 public class Order extends ReflectiveMutableCommandProcessingAggregate<Order,OrderCommand> {
           public List<Event> process(CreateOrderCommand command) { ... }
@@ -234,8 +246,8 @@ public class Order extends ReflectiveMutableCommandProcessingAggregate<Order,Ord
 }
 ```
 
-
 ### Aggregate command
+
 ```java
 public interface OrderCommand extends Command {
 }
@@ -243,6 +255,7 @@ public class CreateOrderCommand implements OrderCommand { ... }
 ```
 
 ### Domain Event
+
 ```java
 interface OrderEvent extends Event {
 }
@@ -250,6 +263,7 @@ public class OrderCreated extends OrderEvent { ... }
 ```
 
 ### Service calls Aggregate Repository
+
 ```java
 public class OrderService {
   private AggregateRepository<Order, OrderCommand> orderRepository;
@@ -280,6 +294,10 @@ public class OrderServiceEventHandlers {
 }
 ```
 
+## 6.3 Saga and event sourcing
 
-## Saga and event sourcing
 -
+
+## to read
+
+https://www.eventstore.com/event-sourcing#:~:text=Event%20Sourcing%20is%20an%20architectural,in%20an%20append%2Donly%20log.
