@@ -5,15 +5,15 @@
 ### event sourcing
 
 - traditional way
-  - store current state of an aggregate in DB
+  - store `current state` of an aggregate in DB
 - event sourcing
-  - stores changes of an aggregate in DB
+  - stores `changes` of an aggregate in DB
     (=a change of an aggregate -> event)
   - current state of an aggregate can be retrieved by iteratively apply the changes.
 
-![6_events_table](6_events_table.png)
+  ![6_events_table](6_events_table.png)
 
-- loading aggregate
+- loading aggregate in event sourcing
 
   - 1\. load the events of the aggregate
   - 2\. crate an aggregate with default constructor
@@ -21,7 +21,7 @@
 
 - why use this? - trouble with traditional persistence
   - object-relational impedance mismatch
-  - lack of aggregate history
+  - lack of aggregate history₩
   - audit logging - error prone
   - event publishing bolted onto business logic
 
@@ -54,28 +54,27 @@
       - 5\. Update the aggregate by iterating through the new events, calling apply().
       - 6\. Save the new events in the event store.
 
-### benefit of event sourcing
+### benefit/drawbacks of event sourcing
+- benefits
+  - reliably publishes domain events
+  - preserves the history of aggregates
+  - mostly avoid the object-relational impedance mismatch
+  - provides developers with a time machine
 
-- reliably publishes domain events
-- preserves the history of aggregates
-- mostly avoid the object-relational impedance mismatch
-- provides developers with a time machine
-
-### drawbacks of event sourcing
-
-- different programming model with a learning curve
-- complexity like messaging-based application
-- evolving events can be tricky
-- deleting data is tricky
-  - soft delete(set `deleted` flag instead of removing the row)
-  - laws like GDPR -> application must forget the user's personal information
-  - solution: encryption
-    - each user has an encryption key
-    - leave the data but delete the encryption key when the user needs to be deleted
-  - if the aggregate key is personal info like email address
-    - replace it with uuid token, map that uuid with email in different table
-- querying the event store is challenging
-  - finding objects with current state is hard
+- drawbacks
+  - different programming model with a learning curve
+  - complexity like messaging-based application
+  - evolving events can be tricky
+  - deleting data is tricky
+    - traditional: soft delete(set `deleted` flag instead of removing the row)
+    - laws like GDPR -> application must forget the user's personal information
+    - solution: encryption
+      - each user has an encryption key
+      - leave the data but delete the encryption key when the user needs to be deleted
+    - if the aggregate key is personal info like email address
+      - replace it with uuid token, map that uuid with email in different table
+  - querying the event store is challenging
+    - finding objects with current state is hard
 
 ## things to think about
 
@@ -223,3 +222,64 @@ create table snapshots (
   - transaction log tailing / polling
   - event relay is deployed as a standalone process. \
     to restart properly, it saves the current position
+
+## client framework with code
+
+### Aggregate: order
+```java
+public class Order extends ReflectiveMutableCommandProcessingAggregate<Order,OrderCommand> {
+          public List<Event> process(CreateOrderCommand command) { ... }
+          public void apply(OrderCreatedEvent event) { ... }
+      ...
+}
+```
+
+
+### Aggregate command
+```java
+public interface OrderCommand extends Command {
+}
+public class CreateOrderCommand implements OrderCommand { ... }
+```
+
+### Domain Event
+```java
+interface OrderEvent extends Event {
+}
+public class OrderCreated extends OrderEvent { ... }
+```
+
+### Service calls Aggregate Repository
+```java
+public class OrderService {
+  private AggregateRepository<Order, OrderCommand> orderRepository;
+
+  public OrderService(AggregateRepository<Order, OrderCommand> orderRepository) {
+    this.orderRepository = orderRepository;
+  }
+
+  public EntityWithIdAndVersion<Order> createOrder(OrderDetails orderDetails) {
+    return orderRepository.save(new CreateOrder(orderDetails));
+  }
+}
+```
+
+### Subscribing to domain events
+
+```java
+@EventSubscriber(id="orderServiceEventHandlers")
+public class OrderServiceEventHandlers {
+
+  @EventHandlerMethod
+  public void creditReserved(EventHandlerContext<CreditReserved> ctx) {
+    CreditReserved event = ctx.getEvent();
+    ...
+  }
+
+  ...
+}
+```
+
+
+## Saga and event sourcing
+-
