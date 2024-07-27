@@ -25,7 +25,7 @@
 
 #### 장점
 
-- 맏울 수 있는 event 발행
+- 믿울 수 있는 event 발행
   - aggregate의 변경 -> event이므로
     - 개발자가 신경써서 business logic에서 발행할 필요가 없고
     - 누락이나 실수의 위험이 줄어든다
@@ -236,10 +236,10 @@
   - event 구독 API
 
 - 이미 존재하는 event store
-  - Event Store: A .NET-based open source event store. developed by Greg Young, an event sourcing pioneer (https://eventstore.org).
+  - Event Store: A .NET 기반 open source event store. developed by Greg Young, an event sourcing pioneer (https://eventstore.org).
   - Lagom: A microservices framework developed by Lightbend, the company for- merly known as Typesafe (www.lightbend.com/lagom-framework).
   - Axon: An open source Java framework for developing event-driven applications that use event sourcing and CQRS (www.axonframework.org).
-  - Eventuate: Developed by my startup, Eventuate (http://eventuate.io). There are two versions of Eventuate: Eventuate SaaS, a cloud service, and Eventuate Local, an Apache Kafka/RDBMS-based open source project.
+  - Eventuate: Developed by my startup, Eventuate (http://eventuate.io). There are two versions of Eventuate: Eventuate SaaS, a cloud service, and Eventuate Local, an Apache Kafka/RDBMS 기반 open source project.
 
 ### event store의 DB 구조
 
@@ -304,6 +304,7 @@ create table snapshots (
     재시작시을 대비해서, 어디까지 처리했는지를 저장한다
 
 ## client framework with code
+![Alt text](6_eventuate_client.png)
 
 ### Aggregate: order
 
@@ -331,7 +332,13 @@ interface OrderEvent extends Event {
 public class OrderCreated extends OrderEvent { ... }
 ```
 
-### Service calls Aggregate Repository
+### Service는 Aggregate Repository를 호출한다.
+
+- Repository
+  - `find()`
+  - `save(Command)`
+  - `update(Command, Aggregate)`
+
 
 ```java
 public class OrderService {
@@ -347,13 +354,14 @@ public class OrderService {
 }
 ```
 
-### Subscribing to domain events
+### domain events 구독
 
 ```java
-@EventSubscriber(id="orderServiceEventHandlers")
+@EventSubscriber(id="orderServiceEventHandlers") // id of subscription
 public class OrderServiceEventHandlers {
 
-  @EventHandlerMethod
+  @EventHandlerMethod // define event handler
+  // EventHandlerContext: event and metadata
   public void creditReserved(EventHandlerContext<CreditReserved> ctx) {
     CreditReserved event = ctx.getEvent();
     ...
@@ -363,4 +371,111 @@ public class OrderServiceEventHandlers {
 }
 ```
 
-## 6.3 Saga and event sorucing
+## 6.3 Saga and event sourcing
+- MSA에서 saga가 일반적으로 쓰인다.
+  여기서는 saga와 event sourcing을 같이 사용하는 경우를 생각해본다.
+- orchestration 기반 saga보다 choreography 기반 saga에서 event sourcing을 이용하기가 더 쉽다
+  - 아래 작업이 원자성을 가져야하기 때문
+    - saga 생성: aggregate 생성/변경, saga orchestrator 생성
+    - saga orchestration: reply, 상태 변경, command 발행
+    - saga 참여자: message 중복 제거, aggregate 생성/변경, reply
+
+- messaging system처럼 중복 제거가 필수이다.
+  - 중복 제거의 key로 aggregate id, event id를 사용할 수 있다.
+
+### event sourcing으로 choreography 기반 saga 구현하기
+- 쉽다.
+  - aggregate가 update 되면 -> event가 생성된다
+  - event handler는 domain event를 consume하고 본인의 aggregate update한다
+- 문제점
+  - 1\. event가 발생해야, consumer(event handler)가 business logic을 처리하기 때문에
+    aggregate에 변경이 없더라도 event를 반환해야한다
+    ex) validation 실패 -> 에러 발생을 알리기 위해 event 반환
+  - 2\. saga 참여자가 aggregate를 생성하지 않는 경우가 있을 수도 있다.
+  - => 따라서, 복잡한 saga는 orchestration 기반가 더 적합하다.
+    
+
+### event sourcing 으로 orchestration 기반 saga 구현하기
+- 두 operation을 원자적으로 처리해야한다.
+  - aggregate 생성/변경
+  - saga orchestrator 생성
+
+- RDBMS 기반 event store
+  - transaction으로 묶는다.
+
+  ```java
+  // class OrderService
+      @Autowired
+      private SagaManager<CreateOrderSagaState> createOrderSagaManager;
+
+      // 1개의 transaction에서
+      @Transactional
+      public EntityWithIdAndVersion<Order> createOrder(OrderDetails orderDetails) {
+
+          // aggregate 생성
+          EntityWithIdAndVersion<Order> order = orderRepository.save(new CreateOrder(orderDetails));
+
+          // saga 생성
+          CreateOrderSagaState data = new CreateOrderSagaState(order.getId(), orderDetails);
+          createOrderSagaManager.create(data, Order.class, order.getId());
+          
+          return order; 
+      }
+  ```
+
+- nosql 기반 event store
+  - transaction이 없다.
+  - 대신에, event handler가 saga를 생성하게 한다.(순차적)
+    - 1\. command 발생
+    - 2\. aggregate 상태 변경 -> event 저장(발생)
+    - 3\. event handler 가 감지  -> saga 생성
+  
+  - RDBMS에서도 이렇게 처리해도 된다.
+    - 느슨한 coupling이 된다.
+  
+  ![alt text](6_nosql_orchestration.png)
+
+### event sourcing 기반 saga 참여자
+- 멱등적으로 command message를 처리해야한다. 
+  - 이미 처리된 message인지 먼저 검증한다
+- 원자적으로 reply message를 보내야한다.
+  - 간단하게 생각하면,
+    - saga 참여자가 reply message를 보내지 않고,
+      orchestrator가 aggregate의 event를 구독한다
+    - 문제1: saga command가 aggregate의 상태를 변경하지 않을 수 있다. -> reply 감지 불가
+    - 문제2
+      - event sourcing 방식의 saga 참여자와, 다른 참여자를 구별해서 처리해야한다
+        - event sourcing 방식의 saga 참여자의 reply: event 구독
+        - 다른 참여자: reply channel을 구독
+
+  - 더 나은 방식
+    - saga 참여자가 reply channel로 응답한다.
+    - saga command handler가 aggregates를 생성/변경할 때,
+      `SagaReplyRequested`라는 가짜 event를 같이 생성한다.
+      ex) `authorize event` command가 발생했을 때,
+        - 1\. command handler는 event를 2개 반환한다.: `accountAuthorized`, `sagaReplyRequested`
+        - 2-1. `accountAuthorized` event를 저장한다. 
+        - 2-2. `sagaReplyRequested` event handler가 reply channel로 메세지를 보낸다.
+
+![Alt text](6_saga_participant_flow.png)
+
+```java
+public class AccountingServiceCommandHandler {
+  
+  @Autowired
+  private AggregateRepository<Account, AccountCommand> accountRepository;
+
+  public void authorize(CommandMessage<AuthorizeCommand> cm) {
+    AuthorizeCommand command = cm.getCommand();
+
+    // event 저장
+    accountRepository.update(command.getOrderId(), // message id 로 멱등적 처리
+      command,
+      replyingTo(cm) // 가짜 pseudo event SagaReplyRequested를 사용해서 reply
+        .catching(AccountDisabledException.class,
+              () -> withFailure(new AccountDisabledReply())) // error 대신 다른 응답
+        .build());
+  }
+}
+```
+

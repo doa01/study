@@ -226,7 +226,7 @@ create table snapshots (
 - to consume an aggregate's event,
 
   - service subscribes to the aggregate's topic
-  - aggregate id: partition key
+  - aggregate id: partition key - preserves the ordering
 
 - event relay
   - propagates events in the database to broker
@@ -235,6 +235,8 @@ create table snapshots (
     to restart properly, it saves the current position
 
 ## client framework with code
+
+![Alt text](6_eventuate_client.png)
 
 ### Aggregate: order
 
@@ -264,6 +266,12 @@ public class OrderCreated extends OrderEvent { ... }
 
 ### Service calls Aggregate Repository
 
+
+- Repository
+  - `find()`
+  - `save(Command)`
+  - `update(Command, Aggregate)`
+
 ```java
 public class OrderService {
   private AggregateRepository<Order, OrderCommand> orderRepository;
@@ -281,10 +289,11 @@ public class OrderService {
 ### Subscribing to domain events
 
 ```java
-@EventSubscriber(id="orderServiceEventHandlers")
+@EventSubscriber(id="orderServiceEventHandlers") // id of subscription
 public class OrderServiceEventHandlers {
 
-  @EventHandlerMethod
+  @EventHandlerMethod // define event handler
+  // EventHandlerContext: event and metadata
   public void creditReserved(EventHandlerContext<CreditReserved> ctx) {
     CreditReserved event = ctx.getEvent();
     ...
@@ -295,9 +304,99 @@ public class OrderServiceEventHandlers {
 ```
 
 ## 6.3 Saga and event sourcing
+- it it easier to implement event sourcing with choreography-based saga than orchestration-based \
+  because of atomicity
+- deduplication like message is required
+  - aggregate id, event id as key
 
--
+### choreography-based saga using event sourcing
+- easy
+  - when aggregate is updated -> emit event
+  - event handler consume that event and update aggregate
+- problems
+  - aggregate should emit event even without state change \
+    because event is also used in business logic \
+    ex) validation fail -> emit event to report error
+  - thus, complex saga is better with orchestration
+
+### orchestration-based saga using event sourcing
+- two operations atomically
+  - create or update aggregate
+  - create a saga orchestrator
+
+- RDBMS-based event store
+  - has transaction
+
+  ```java
+  // class OrderService
+      @Autowired
+      private SagaManager<CreateOrderSagaState> createOrderSagaManager;
+
+      // in a transaction
+      @Transactional
+      public EntityWithIdAndVersion<Order> createOrder(OrderDetails orderDetails) {
+
+          // create aggregate
+          EntityWithIdAndVersion<Order> order = orderRepository.save(new CreateOrder(orderDetails));
+
+          // create saga
+          CreateOrderSagaState data = new CreateOrderSagaState(order.getId(), orderDetails);
+          createOrderSagaManager.create(data, Order.class, order.getId());
+          
+          return order; 
+      }
+  ```
+
+- nosql-based event store
+  - without transaction
+  - instead, event handler creates saga orchestrator
+    - 1\. aggregate state change -> event saved(=emitted)
+    - 2\. event handler catches the change -> create saga
+  - also applicable to RDBMS
+    - benefit: loose coupling
+  
+  ![alt text](6_nosql_orchestration.png)
+
+### event sourcing-based saga participant
+- idempotent command message handling
+  - verify the message was not handled previously
+- atomically send reply message
+  - simple approach: orchestrator subscribes to the events emitted by an aggregate
+    - problem1: saga command might not actually change the state of an aggregate
+    - problem2: should treat saga participants that use event sourcing differently from those that don't
+  - better approach
+    - participant reply to reply channel
+    - when saga command handler creates/updates aggregates,
+      additionally, create pseudo event - `SagaReplyRequested`
+      ex) when `authorize account` command arrive,
+        - 1\. command handler returns two event: `accountAuthorized`, `sagaReplyRequested`
+        - 2-1. save event `accountAuthorized`
+        - 2-2. `sagaReplyRequested` event handler send message to reply channel
+
+![Alt text](6_saga_participant_flow.png)
+
+```java
+public class AccountingServiceCommandHandler {
+  
+  @Autowired
+  private AggregateRepository<Account, AccountCommand> accountRepository;
+
+  public void authorize(CommandMessage<AuthorizeCommand> cm) {
+    AuthorizeCommand command = cm.getCommand();
+
+    // save event
+    accountRepository.update(command.getOrderId(), // use message id for deduplication
+      command,
+      replyingTo(cm) // reply by using pseudo event SagaReplyRequested
+        .catching(AccountDisabledException.class,
+              () -> withFailure(new AccountDisabledReply())) // send default reply instead of error
+        .build());
+  }
+}
+```
+
 
 ## to read
 
 https://www.eventstore.com/event-sourcing#:~:text=Event%20Sourcing%20is%20an%20architectural,in%20an%20append%2Donly%20log.
+
