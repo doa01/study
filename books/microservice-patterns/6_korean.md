@@ -392,8 +392,8 @@ public class OrderServiceEventHandlers {
     aggregate에 변경이 없더라도 event를 반환해야한다
     ex) validation 실패 -> 에러 발생을 알리기 위해 event 반환
   - 2\. saga 참여자가 aggregate를 생성하지 않는 경우가 있을 수도 있다.
-  - => 따라서, 복잡한 saga는 orchestration 기반가 더 적합하다.
-    
+  - => 따라서, 복잡한 saga는 orchestration 기반 방식이 더 적합하다.
+
 
 ### event sourcing 으로 orchestration 기반 saga 구현하기
 - 두 operation을 원자적으로 처리해야한다.
@@ -418,8 +418,8 @@ public class OrderServiceEventHandlers {
           // saga 생성
           CreateOrderSagaState data = new CreateOrderSagaState(order.getId(), orderDetails);
           createOrderSagaManager.create(data, Order.class, order.getId());
-          
-          return order; 
+
+          return order;
       }
   ```
 
@@ -429,14 +429,14 @@ public class OrderServiceEventHandlers {
     - 1\. command 발생
     - 2\. aggregate 상태 변경 -> event 저장(발생)
     - 3\. event handler 가 감지  -> saga 생성
-  
+
   - RDBMS에서도 이렇게 처리해도 된다.
     - 느슨한 coupling이 된다.
-  
+
   ![alt text](6_nosql_orchestration.png)
 
 ### event sourcing 기반 saga 참여자
-- 멱등적으로 command message를 처리해야한다. 
+- 멱등적으로 command message를 처리해야한다.
   - 이미 처리된 message인지 먼저 검증한다
 - 원자적으로 reply message를 보내야한다.
   - 간단하게 생각하면,
@@ -454,14 +454,14 @@ public class OrderServiceEventHandlers {
       `SagaReplyRequested`라는 가짜 event를 같이 생성한다.
       ex) `authorize event` command가 발생했을 때,
         - 1\. command handler는 event를 2개 반환한다.: `accountAuthorized`, `sagaReplyRequested`
-        - 2-1. `accountAuthorized` event를 저장한다. 
+        - 2-1. `accountAuthorized` event를 저장한다.
         - 2-2. `sagaReplyRequested` event handler가 reply channel로 메세지를 보낸다.
 
 ![Alt text](6_saga_participant_flow.png)
 
 ```java
 public class AccountingServiceCommandHandler {
-  
+
   @Autowired
   private AggregateRepository<Account, AccountCommand> accountRepository;
 
