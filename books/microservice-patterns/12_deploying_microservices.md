@@ -43,7 +43,7 @@ https://developer.hashicorp.com/packer/docs/intro
 ---
 
 ## Deployment
-- deployment
+- deployment: software to production
   - process: what should be performed
   - architecture: structure of the environment that software runs
 - history
